@@ -1,0 +1,6 @@
+{
+  "name": "VerseAI Agent Studio",
+  "description": "An advanced studio application to automatically generate high-quality fine-tuning datasets for Large Language Model (LLM) applications using a multi-agent system.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
