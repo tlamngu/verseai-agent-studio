@@ -134,6 +134,7 @@ export const GenerationTab: React.FC = () => {
                 .replace('{SCENARIO}', config.scenario)
                 .replace('{REFERENCE_DATA}', config.referenceData || 'N/A')
                 .replace('{HISTORY}', conversationHistoryText || 'N/A');
+            addLog('User Agent', `Raw prompt:\n---\n${userAgentPrompt}\n---`, 'info');
             const userPromptContent = await aiProvider.generateContent(config[AgentRole.USER].model, userAgentPrompt);
 
             const userMessage: Message = { role: 'user', content: userPromptContent, timestamp: new Date().toLocaleTimeString() };
@@ -146,6 +147,7 @@ export const GenerationTab: React.FC = () => {
                  { role: 'model', parts: [{ text: turn.agentResponse.content }] }
             ]);
             agentHistory.push({ role: 'user', parts: [{ text: userPromptContent }] });
+            addLog('Agent LLM', `Request history:\n---\n${JSON.stringify(agentHistory, null, 2)}\n---`, 'info');
             
             let agentResponseContent: string | undefined;
             let finalAgentMessage: Message | undefined;
@@ -222,6 +224,7 @@ export const GenerationTab: React.FC = () => {
                 .replace('{PROJECT_GOAL}', config.projectDescription)
                 .replace('{USER_PROMPT}', userPromptContent)
                 .replace('{AGENT_RESPONSE}', agentResponseContent);
+            addLog('Watcher Agent', `Raw prompt:\n---\n${qualityPrompt}\n---`, 'info');
             const qualityResult = await aiProvider.generateJsonContent(config[AgentRole.WATCHER].model, qualityPrompt, SchemaType.WATCHER_AGENT);
             
             let qualityScore = 0;
