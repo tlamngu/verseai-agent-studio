@@ -102,7 +102,7 @@ const AppContent: React.FC = () => {
             case Tab.CONFIGURATION:
                 return <ConfigurationTab />;
             case Tab.GENERATION:
-                return <GenerationTab key={generationTabKey} />;
+                return <GenerationTab key={generationTabKey}  />;
             case Tab.DATASETS:
                 return <DatasetManagementTab />;
             case Tab.TOOL_EDITOR:

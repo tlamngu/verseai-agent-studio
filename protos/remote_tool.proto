@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package verseai;
+
+service RemoteToolExecutor {
+  // Execute a remote tool
+  rpc ExecuteTool (ToolRequest) returns (ToolResponse);
+  
+  // Execute a RAG action
+  rpc ExecuteRAG (RAGRequest) returns (RAGResponse);
+}
+
+message ToolRequest {
+  string tool_name = 1;
+  string arguments_json = 2;
+  map<string, string> metadata = 3;
+}
+
+message ToolResponse {
+  string result_json = 1;
+  bool success = 2;
+  string error = 3;
+}
+
+message RAGRequest {
+  string action_name = 1;
+  string query = 2;
+  string reference_data = 3;
+  map<string, string> metadata = 4;
+}
+
+message RAGResponse {
+  string result_json = 1;
+  repeated Source sources = 2;
+  bool success = 3;
+  string error = 4;
+}
+
+message Source {
+  string title = 1;
+  string uri = 2;
+  float relevance_score = 3;
+}

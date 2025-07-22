@@ -94,18 +94,13 @@ export const GenerationTab: React.FC = () => {
         saveConversationToDataset
     } = useAppContext();
     
-    // Use a ref for state needed inside the async loop, but which should not trigger re-renders itself.
     const generationState = useRef<{ isRunning: boolean, turnCount: number, maxTurns: number }>({ isRunning: false, turnCount: 0, maxTurns: 10 });
     const toolExecutorRef = useRef<ToolExecutor | null>(null);
     const endOfMessagesRef = useRef<HTMLDivElement>(null);
 
-    // FIX: Create a ref to hold the current conversation to avoid stale closures in runGenerationCycle.
-    const conversationRef = useRef(currentConversation);
-    useEffect(() => {
-        conversationRef.current = currentConversation;
-    }, [currentConversation]);
-
-    const { config } = activeWorkspace!;
+    const config = activeWorkspace!.config;
+    const conversation = currentConversation;
+    const setConversation = setCurrentConversation;
 
     const stopWithError = useCallback((errorMessage: string) => {
         addLog('System', errorMessage, 'error');
@@ -122,7 +117,7 @@ export const GenerationTab: React.FC = () => {
     
     useEffect(() => {
         endOfMessagesRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [currentConversation]);
+    }, [conversation]);
 
     const runGenerationCycle = useCallback(async () => {
         if (!generationState.current.isRunning) return;
@@ -132,27 +127,25 @@ export const GenerationTab: React.FC = () => {
             const availableTools: (ToolDefinition | RAGAction)[] = [...config.ragActions, ...config.tools];
             
             // 1. User Agent generates a prompt
-            // FIX: Read from the ref to get the latest conversation history.
-            const conversationHistoryText = conversationRef.current
-                .map(turn => `User: ${turn.userPrompt.content}\nAgent: ${turn.agentResponse.content}`)
-                .join('\n\n');
-            
+            console.log(currentConversation)
+            const conversationHistoryText = currentConversation.map(turn => `User: ${turn.userPrompt.content}\nAgent: ${turn.agentResponse.content}`).join('\n\n');
+            console.log("History: -----")
+            console.log(conversationHistoryText);
             addLog('User Agent', 'Generating prompt...');
             const userAgentPrompt = config[AgentRole.USER].prompt
                 .replace('{PROJECT_GOAL}', config.projectDescription)
                 .replace('{SCENARIO}', config.scenario)
                 .replace('{REFERENCE_DATA}', config.referenceData || '')
                 .replace('{HISTORY}', conversationHistoryText);
-            
             addLog('User Agent', `Raw prompt:\n---\n${userAgentPrompt}\n---`, 'info');
             const userPromptContent = await aiProvider.generateContent(config[AgentRole.USER].model, userAgentPrompt);
+
             const userMessage: Message = { role: 'user', content: userPromptContent, timestamp: new Date().toLocaleTimeString() };
             addLog('User Agent', `Generated prompt: "${userPromptContent}"`, 'action');
 
             // 2. Agent LLM generates a response, potentially using tools
             addLog('Agent LLM', 'Thinking...');
-            // FIX: Build history from the ref to ensure it's current.
-            const agentHistory: Content[] = conversationRef.current.flatMap(turn => [
+            const agentHistory: Content[] = conversation.flatMap(turn => [
                  { role: 'user', parts: [{ text: turn.userPrompt.content }] },
                  { role: 'model', parts: [{ text: turn.agentResponse.content }] }
             ]);
@@ -217,6 +210,7 @@ export const GenerationTab: React.FC = () => {
                         }
                     }
                     agentHistory.push({ role: 'tool', parts: toolResponses });
+
                 } else {
                     throw new Error('Agent LLM returned an empty response.');
                 }
@@ -237,8 +231,14 @@ export const GenerationTab: React.FC = () => {
             const qualityResult = await aiProvider.generateJsonContent(config[AgentRole.WATCHER].model, qualityPrompt, SchemaType.WATCHER_AGENT);
             
             let qualityScore = 0;
+            let scoreIsValid = false;
+
             if (qualityResult && typeof qualityResult.qualityScore === 'number') {
                 qualityScore = qualityResult.qualityScore;
+                scoreIsValid = true;
+            }
+
+            if(scoreIsValid) {
                 addLog('Watcher Agent', `Quality score: ${qualityScore}`, 'action');
             } else {
                 addLog('Watcher Agent', `Could not get a valid quality score. Raw response: ${JSON.stringify(qualityResult)}. Defaulting to 0.`, 'warning');
@@ -251,8 +251,7 @@ export const GenerationTab: React.FC = () => {
                 qualityScore: qualityScore,
             };
             
-            // This state update will trigger a re-render, which in turn updates conversationRef.current
-            setCurrentConversation((prev) => [...prev, newTurn]);
+            setConversation((prev) => [...prev, newTurn]);
             generationState.current.turnCount += 1;
 
             if (generationState.current.turnCount >= generationState.current.maxTurns) {
@@ -265,18 +264,12 @@ export const GenerationTab: React.FC = () => {
         } catch(error) {
             stopWithError(error instanceof Error ? error.message : "An unknown error occurred during generation cycle.");
         }
-    // FIX: Removed `currentConversation` (or `conversation`) from the dependency array.
-    // The function is now stable and gets the latest conversation via the ref.
-    }, [config, setStatus, setCurrentConversation, addLog, stopWithError]);
+    }, [config, setStatus, setConversation, addLog, conversation, stopWithError]);
     
     const handleStart = async () => {
-        setCurrentConversation([]);
+        setConversation([]);
         setStatus(GenerationStatus.RUNNING);
         addLog('System', 'Generation process started.');
-        
-        // FIX: Reset turn count ref on start
-        generationState.current.turnCount = 0;
-        generationState.current.isRunning = true;
 
         try {
             const aiProvider = getAIProvider(config);
@@ -288,6 +281,7 @@ export const GenerationTab: React.FC = () => {
             }
             
             addLog('System', 'AI agents are ready. Starting generation...', 'success');
+            generationState.current.isRunning = true;
             runGenerationCycle();
         } catch (error) {
             stopWithError(`Error during preparation: ${error instanceof Error ? error.message : String(error)}`);
@@ -306,24 +300,23 @@ export const GenerationTab: React.FC = () => {
                 <div className="flex items-center space-x-4">
                     <button onClick={handleStart} disabled={status === GenerationStatus.RUNNING} className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 disabled:bg-gray-500 disabled:cursor-not-allowed transition-colors">Start Generation</button>
                     <button onClick={handleStop} disabled={status !== GenerationStatus.RUNNING} className="px-4 py-2 bg-red-600 text-white font-semibold rounded-md hover:bg-red-700 disabled:bg-gray-500 disabled:cursor-not-allowed transition-colors">Stop</button>
-                    <button onClick={saveConversationToDataset} disabled={currentConversation.length === 0 || status === GenerationStatus.RUNNING} className="px-4 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed transition-colors">Save Dataset</button>
+                    <button onClick={saveConversationToDataset} disabled={conversation.length === 0 || status === GenerationStatus.RUNNING} className="px-4 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed transition-colors">Save Dataset</button>
                 </div>
                 <div className="text-right">
                     <p className="font-mono text-sm text-gray-400">Status: <span className={`font-semibold ${status === GenerationStatus.ERROR ? 'text-red-400' : 'text-yellow-400'}`}>{status}</span></p>
-                    {/* Note: This UI will update on each turn because setCurrentConversation triggers a re-render */}
                     <p className="font-mono text-sm text-gray-400">Turns: <span className="font-semibold text-gray-200">{generationState.current.turnCount} / {generationState.current.maxTurns}</span></p>
                 </div>
             </div>
 
             <div className="flex-grow grid grid-cols-1 lg:grid-cols-2 gap-4 overflow-hidden">
                 <div className="lg:col-span-1 bg-gray-800 rounded-lg p-4 overflow-y-auto border border-gray-700">
-                    {currentConversation.length === 0 ? (
+                    {conversation.length === 0 ? (
                         <div className="flex items-center justify-center h-full">
                             <p className="text-gray-500">Conversation log will appear here...</p>
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            {currentConversation.map((turn) => (
+                            {conversation.map((turn) => (
                                 <div key={turn.id}>
                                     <AgentMessage message={turn.userPrompt} />
                                     <AgentMessage message={turn.agentResponse} />
